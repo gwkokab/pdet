@@ -3,16 +3,17 @@ import os
 import warnings
 from collections.abc import Callable
 from typing import Optional
+from typing_extensions import List
 
 import astropy.units as u
 import equinox as eqx
 import h5py
 import jax
 import jax.numpy as jnp
+import jax.random as jrd
 import numpy as np
-import pandas as pd
 from astropy.cosmology import Planck15, z_at_value
-from jaxtyping import Array
+from jaxtyping import Array, PRNGKeyArray
 
 from .names import (
     A_1,
@@ -120,6 +121,8 @@ class emulator:
             layer_biases = weight_data["{0}/{0}/bias:0".format(key)][()].T
             self.nn = eqx.tree_at(get_biases(i), self.nn, layer_biases)
 
+        self.nn_vmapped = jax.vmap(self.nn)
+
     def _transform_parameters(self, *physical_params):
         """OVERWRITE UPON SUBCLASSING.
 
@@ -169,9 +172,12 @@ class emulator:
 
         # Apply scaling, evaluate the network, and return
         scaled_x = (transformed_x.T - self.scaler["mean"]) / self.scaler["scale"]
-        return jax.vmap(self.nn)(scaled_x)
+        # return jax.vmap(self.nn)(scaled_x)
+        return self.nn_vmapped(scaled_x)
 
-    def _check_distance(self, parameter_dict: dict):
+    def _check_distance(
+        self, key: PRNGKeyArray, parameter_dict: dict[str, Array]
+    ) -> tuple[PRNGKeyArray, dict[str, Array]]:
         """Helper function to check the presence of required distance
         arguments, and augment input parameters with additional quantities as
         needed.
@@ -191,17 +197,19 @@ class emulator:
         allowed_distance_params = [LUMINOSITY_DISTANCE, COMOVING_DISTANCE, REDSHIFT]
         if not any(param in parameter_dict for param in allowed_distance_params):
             raise RuntimeError(
-                "Missing distance parameter. Requires one of:", allowed_distance_params
+                "Missing distance parameter. Requires one of: ", allowed_distance_params
             )
-        elif sum(param in parameter_dict for param in allowed_distance_params) > 1:
+        elif all(param in parameter_dict for param in allowed_distance_params):
             raise RuntimeError(
-                "Multiple distance parameters present. Only one of the following allowed:",
+                "Multiple distance parameters present. Only one of the following allowed: ",
                 allowed_distance_params,
             )
 
+        missing_params = {}
+
         # Augment, such both redshift and luminosity distance are present
         if COMOVING_DISTANCE in parameter_dict:
-            parameter_dict[REDSHIFT] = z_at_value(
+            missing_params[REDSHIFT] = z_at_value(
                 Planck15.comoving_distance, parameter_dict[COMOVING_DISTANCE] * u.Gpc
             ).value
             parameter_dict[LUMINOSITY_DISTANCE] = (
@@ -209,17 +217,21 @@ class emulator:
             )
 
         elif LUMINOSITY_DISTANCE in parameter_dict:
-            parameter_dict[REDSHIFT] = z_at_value(
+            missing_params[REDSHIFT] = z_at_value(
                 Planck15.luminosity_distance,
                 parameter_dict[LUMINOSITY_DISTANCE] * u.Gpc,
             ).value
 
         elif REDSHIFT in parameter_dict:
-            parameter_dict[LUMINOSITY_DISTANCE] = (
+            missing_params[LUMINOSITY_DISTANCE] = (
                 Planck15.luminosity_distance(parameter_dict[REDSHIFT]).to(u.Gpc).value
             )
 
-    def _check_masses(self, parameter_dict):
+        return key, missing_params
+
+    def _check_masses(
+        self, key: PRNGKeyArray, parameter_dict: dict[str, Array]
+    ) -> tuple[PRNGKeyArray, dict[str, Array]]:
         """Helper function to check the presence of required mass arguments,
         and augment input parameters with additional quantities needed for
         prediction.
@@ -240,11 +252,16 @@ class emulator:
             if param not in parameter_dict:
                 raise RuntimeError("Must include {0} parameter".format(param))
 
+        missing_params = {}
         # Reshape for safety below
-        parameter_dict[MASS_1] = np.reshape(parameter_dict[MASS_1], -1)
-        parameter_dict[MASS_2] = np.reshape(parameter_dict[MASS_2], -1)
+        missing_params[MASS_1] = jnp.reshape(parameter_dict[MASS_1], -1)
+        missing_params[MASS_2] = jnp.reshape(parameter_dict[MASS_2], -1)
 
-    def _check_spins(self, parameter_dict: dict[str, np.ndarray]):
+        return key, missing_params
+
+    def _check_spins(
+        self, key: PRNGKeyArray, parameter_dict: dict[str, Array]
+    ) -> tuple[PRNGKeyArray, dict[str, Array]]:
         """Helper function to check for the presence of required spin
         parameters and augment with additional quantities as needed.
 
@@ -264,34 +281,46 @@ class emulator:
             if param not in parameter_dict:
                 raise RuntimeError("Must include {0} parameter".format(param))
 
+        missing_params = {}
+
         # Reshape for safety below
-        parameter_dict[A_1] = np.reshape(parameter_dict[A_1], -1)
-        parameter_dict[A_2] = np.reshape(parameter_dict[A_2], -1)
+        missing_params[A_1] = jnp.reshape(parameter_dict[A_1], -1)
+        missing_params[A_2] = jnp.reshape(parameter_dict[A_2], -1)
+
+        shape_A_1 = parameter_dict[A_1].shape
+        shape_A_2 = parameter_dict[A_2].shape
 
         # Check for optional parameters, fill in if absent
         if COS_THETA_1 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_1} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[COS_THETA_1] = (
-                2.0 * np.random.random(parameter_dict[A_1].shape) - 1.0
+            missing_params[COS_THETA_1] = jrd.uniform(
+                key, shape_A_1, minval=-1.0, maxval=1.0
             )
+            _, key = jrd.split(key)
         if COS_THETA_2 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_2} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[COS_THETA_2] = (
-                2.0 * np.random.random(parameter_dict[A_2].shape) - 1.0
+            missing_params[COS_THETA_2] = jrd.uniform(
+                key, shape_A_2, minval=-1.0, maxval=1.0
             )
+            _, key = jrd.split(key)
         if PHI_12 not in parameter_dict:
             warnings.warn(
                 f"Parameter {PHI_12} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[PHI_12] = (
-                2.0 * np.pi * np.random.random(parameter_dict[A_1].shape)
+            missing_params[PHI_12] = jrd.uniform(
+                key, shape_A_1, minval=0.0, maxval=2.0 * jnp.pi
             )
+            _, key = jrd.split(key)
 
-    def _check_extrinsic(self, parameter_dict: dict | pd.DataFrame):
+        return key, missing_params
+
+    def _check_extrinsic(
+        self, key: PRNGKeyArray, parameter_dict: dict[str, Array]
+    ) -> tuple[PRNGKeyArray, dict[str, Array]]:
         """Helper method to check required extrinsic parameters and augment as
         necessary.
 
@@ -305,42 +334,53 @@ class emulator:
         None
         """
 
+        missing_params = {}
+
+        shape_MASS_1 = parameter_dict[MASS_1].shape
+
         if RIGHT_ASCENSION not in parameter_dict:
             warnings.warn(
                 f"Parameter {RIGHT_ASCENSION} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[RIGHT_ASCENSION] = (
-                2.0 * np.pi * np.random.random(parameter_dict[MASS_1].shape)
+            missing_params[RIGHT_ASCENSION] = jrd.uniform(
+                key, shape_MASS_1, minval=0.0, maxval=2.0 * jnp.pi
             )
-
+            _, key = jrd.split(key)
         if SIN_DECLINATION not in parameter_dict:
             warnings.warn(
                 f"Parameter {SIN_DECLINATION} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[SIN_DECLINATION] = (
-                2.0 * np.random.random(parameter_dict[MASS_1].shape) - 1.0
+            missing_params[SIN_DECLINATION] = jrd.uniform(
+                key, shape_MASS_1, minval=-1.0, maxval=1.0
             )
+            _, key = jrd.split(key)
 
         if INCLINATION not in parameter_dict:
             if COS_INCLINATION not in parameter_dict:
                 warnings.warn(
                     f"Parameter {INCLINATION} or {COS_INCLINATION} not present. Filling with random value from isotropic distribution."
                 )
-                parameter_dict[COS_INCLINATION] = (
-                    2.0 * np.random.random(parameter_dict[MASS_1].shape) - 1.0
+                missing_params[COS_INCLINATION] = jrd.uniform(
+                    key, shape_MASS_1, minval=-1.0, maxval=1.0
                 )
+            _, key = jrd.split(key)
         else:
-            parameter_dict[COS_INCLINATION] = np.cos(parameter_dict[INCLINATION])
+            missing_params[COS_INCLINATION] = jnp.cos(parameter_dict[INCLINATION])
 
         if POLARIZATION_ANGLE not in parameter_dict:
             warnings.warn(
                 f"Parameter {POLARIZATION_ANGLE} not present. Filling with random value from isotropic distribution."
             )
-            parameter_dict[POLARIZATION_ANGLE] = np.pi * np.random.random(
-                parameter_dict[MASS_1].shape
+            missing_params[POLARIZATION_ANGLE] = jrd.uniform(
+                key, shape_MASS_1, minval=0.0, maxval=2.0 * jnp.pi
             )
+            _, key = jrd.split(key)
 
-    def check_input(self, parameter_dict: dict | pd.DataFrame) -> dict:
+        return key, missing_params
+
+    def check_input(
+        self, key: PRNGKeyArray, parameter_dict: dict[str, Array]
+    ) -> dict[str, Array]:
         """Method to check provided set of compact binary parameters for any
         missing information, and/or to augment provided parameters with any
         additional derived information expected by the neural network. If
@@ -360,15 +400,16 @@ class emulator:
             parameters
         """
 
-        # Convert from pandas table to dictionary, if necessary
-        if type(parameter_dict) == pd.DataFrame:
-            parameter_dict = parameter_dict.to_dict(orient="list")
-
         # Check parameters
-        self._check_distance(parameter_dict)
-        self._check_masses(parameter_dict)
-        self._check_spins(parameter_dict)
-        self._check_extrinsic(parameter_dict)
+        key, missing_distance = self._check_distance(key, parameter_dict)
+        key, missing_masses = self._check_masses(key, parameter_dict)
+        key, missing_spins = self._check_spins(key, parameter_dict)
+        key, missing_extrinsic = self._check_extrinsic(key, parameter_dict)
+
+        parameter_dict.update(missing_distance)
+        parameter_dict.update(missing_masses)
+        parameter_dict.update(missing_spins)
+        parameter_dict.update(missing_extrinsic)
 
         return parameter_dict
 
@@ -387,7 +428,9 @@ class pdet_O3(emulator):
     enddate of O3.
     """
 
-    def __init__(self, model_weights=None, scaler=None):
+    def __init__(
+        self, model_weights=None, scaler=None, parameters: Optional[List[str]] = None
+    ):
         """Instantiates a `p_det_O3` object, subclassed from the `emulator`
         class.
 
@@ -403,6 +446,11 @@ class pdet_O3(emulator):
             one wishes to override the provided default (loaded when
             `scaler==None`).
         """
+
+        if parameters is None:
+            raise ValueError("Must provide list of parameters")
+
+        self.parameters = parameters
 
         if model_weights is None:
             model_weights = os.path.join(
@@ -424,7 +472,7 @@ class pdet_O3(emulator):
         activation = lambda x: jax.nn.leaky_relu(x, 1e-3)
         final_activation = lambda x: (1.0 - 0.0589) * jax.nn.sigmoid(x)
 
-        self.interp_DL = np.logspace(-4, np.log10(15.0), 500)
+        self.interp_DL = np.logspace(-4, jnp.log10(15.0), 500)
         self.interp_z = z_at_value(
             Planck15.luminosity_distance, self.interp_DL * u.Gpc
         ).value
@@ -502,12 +550,14 @@ class pdet_O3(emulator):
             ]
         )
 
-    def predict(self, input_parameter_dict: dict):
+    def predict(self, key: PRNGKeyArray, params: Array) -> Array:
         # Copy so that we can safely modify dictionary in-place
-        parameter_dict = input_parameter_dict.copy()
+        parameter_dict = {
+            parameter: params[i] for i, parameter in enumerate(self.parameters)
+        }
 
         # Check input
-        parameter_dict = self.check_input(parameter_dict)
+        parameter_dict = self.check_input(key, parameter_dict)
 
         features = jnp.stack(
             [
