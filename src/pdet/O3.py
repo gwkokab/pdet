@@ -25,6 +25,7 @@ from ._names import (
     SIN_DECLINATION,
 )
 from ._transform import eta_from_q, mass_ratio
+import time
 
 
 class pdet_O3(Emulator):
@@ -60,6 +61,12 @@ class pdet_O3(Emulator):
             `scaler==None`).
         """
 
+        current_time = time.time()
+
+        print(time.time() - current_time, " init started.")
+
+        current_time = time.time()
+
         if parameters is None:
             raise ValueError("Must provide list of parameters")
 
@@ -72,12 +79,19 @@ class pdet_O3(Emulator):
         else:
             print("Overriding default weights")
 
+        print(time.time() - current_time, " weights reading completed.")
+
+        current_time = time.time()
+
         if scaler is None:
             scaler = os.path.join(
                 os.path.dirname(__file__), "./../trained_weights/scaler_HLV_O3.json"
             )
         else:
             print("Overriding default weights")
+
+        print(time.time() - current_time, " scalar reading completed.")
+        current_time = time.time()
 
         input_dimension = 15
         hidden_width = 192
@@ -90,6 +104,9 @@ class pdet_O3(Emulator):
             Planck15.luminosity_distance, self.interp_DL * u.Gpc
         ).value
 
+        print(time.time() - current_time, " before starting super init.")
+        current_time = time.time()
+
         super().__init__(
             model_weights,
             scaler,
@@ -99,6 +116,8 @@ class pdet_O3(Emulator):
             activation,
             final_activation,
         )
+
+        print(time.time() - current_time, " super init completed.")
 
     def _transform_parameters(
         self,
