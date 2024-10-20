@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages]
+find = { where = ["src/"] }
+
+[tool.setuptools.package-data]
+trained_weights = ["*.json", "*.hdf5"]
+
+[project]
+authors = [{ name = "Tom Callister", email = "thomas.a.callister@gmail.com" }]
+name = "pdet"
+version = "0.0.1"
+maintainers = [
+    { name = "Tom Callister", email = "thomas.a.callister@gmail.com" },
+]
+description = ""
+readme = "README.md"
+# license = { file = "LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "astropy>=6.0.1",
+    "equinox>=0.11.3",
+    "h5py>=3.12.0",
+    "jax>=0.4.25",
+    "jaxlib>=0.4.25",
+    "numpy>=1.26.4",
+]
+
+[project.urls]
+Changelog = "https://github.com/tcallister/pdet/blob/main/CHANGELOG.md"
+Discussion = "https://github.com/tcallister/pdet/discussions"
+Homepage = "https://github.com/tcallister/pdet"
+Issues = "https://github.com/tcallister/pdet/issues"
