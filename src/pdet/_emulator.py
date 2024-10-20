@@ -3,15 +3,17 @@ import warnings
 from collections.abc import Callable
 from typing_extensions import LiteralString, Optional
 
-import astropy.units as u
 import equinox as eqx
 import h5py
 import jax
 import jax.numpy as jnp
 import jax.random as jrd
-from astropy.cosmology import Planck15, z_at_value
+from astropy import units
 from jaxtyping import Array, PRNGKeyArray
+from wcosmo import z_at_value
+from wcosmo.utils import strip_units
 
+from ._cosmology import Planck15
 from ._names import (
     A_1,
     A_2,
@@ -74,6 +76,7 @@ class Emulator:
         -------
         None
         """
+        # enable_units()
 
         # Instantiate neural network
         self.trained_weights = trained_weights
@@ -212,14 +215,11 @@ class Emulator:
         # Augment, such both redshift and luminosity distance are present
         if COMOVING_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                Planck15.comoving_distance,
-                list(parameter_dict[COMOVING_DISTANCE]) * u.Gpc,
-            ).value
-            luminosity_distance = (
-                Planck15.luminosity_distance(list(parameter_dict[REDSHIFT]))
-                .to(u.Gpc)
-                .value
+                lambda z: strip_units(Planck15.comoving_distance(z)),
+                parameter_dict[COMOVING_DISTANCE],
             )
+            luminosity_distance = Planck15.luminosity_distance(redshift) * units.Gpc
+
             redshift = jnp.broadcast_to(redshift, shape)
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
 
@@ -228,18 +228,13 @@ class Emulator:
 
         elif LUMINOSITY_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                Planck15.luminosity_distance,
-                list(parameter_dict[LUMINOSITY_DISTANCE]) * u.Gpc,
-            ).value
+                Planck15.luminosity_distance, parameter_dict[LUMINOSITY_DISTANCE]
+            )
             redshift = jnp.broadcast_to(redshift, shape)
             missing_params[REDSHIFT] = redshift
 
         elif REDSHIFT in parameter_dict:
-            luminosity_distance = (
-                Planck15.luminosity_distance(list(parameter_dict[REDSHIFT]))
-                .to(u.Gpc)
-                .value
-            )
+            luminosity_distance = Planck15.luminosity_distance(parameter_dict[REDSHIFT])
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
             missing_params[LUMINOSITY_DISTANCE] = luminosity_distance
 
@@ -270,11 +265,6 @@ class Emulator:
         for param in required_mass_params:
             if param not in parameter_dict:
                 raise RuntimeError("Must include {0} parameter".format(param))
-
-        # missing_params = {}
-        # # Reshape for safety below
-        # missing_params[MASS_1] = jnp.reshape(parameter_dict[MASS_1], -1)
-        # missing_params[MASS_2] = jnp.reshape(parameter_dict[MASS_2], -1)
 
         return key, {MASS_1: parameter_dict[MASS_1], MASS_2: parameter_dict[MASS_2]}
 

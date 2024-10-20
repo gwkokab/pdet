@@ -39,6 +39,7 @@ dependencies = [
     "jax>=0.4.25",
     "jaxlib>=0.4.25",
     "numpy>=1.26.4",
+    "wcosmo>=0.4.0",
 ]
 
 [project.urls]
