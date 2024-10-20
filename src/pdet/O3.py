@@ -25,7 +25,6 @@ from ._names import (
     SIN_DECLINATION,
 )
 from ._transform import eta_from_q, mass_ratio
-import time
 
 
 class pdet_O3(Emulator):
@@ -61,12 +60,6 @@ class pdet_O3(Emulator):
             `scaler==None`).
         """
 
-        current_time = time.time()
-
-        print(time.time() - current_time, " init started.")
-
-        current_time = time.time()
-
         if parameters is None:
             raise ValueError("Must provide list of parameters")
 
@@ -79,19 +72,12 @@ class pdet_O3(Emulator):
         else:
             print("Overriding default weights")
 
-        print(time.time() - current_time, " weights reading completed.")
-
-        current_time = time.time()
-
         if scaler is None:
             scaler = os.path.join(
                 os.path.dirname(__file__), "./../trained_weights/scaler_HLV_O3.json"
             )
         else:
             print("Overriding default weights")
-
-        print(time.time() - current_time, " scalar reading completed.")
-        current_time = time.time()
 
         input_dimension = 15
         hidden_width = 192
@@ -104,9 +90,6 @@ class pdet_O3(Emulator):
             Planck15.luminosity_distance, self.interp_DL * u.Gpc
         ).value
 
-        print(time.time() - current_time, " before starting super init.")
-        current_time = time.time()
-
         super().__init__(
             model_weights,
             scaler,
@@ -116,8 +99,6 @@ class pdet_O3(Emulator):
             activation,
             final_activation,
         )
-
-        print(time.time() - current_time, " super init completed.")
 
     def _transform_parameters(
         self,
@@ -142,7 +123,7 @@ class pdet_O3(Emulator):
         DL = jnp.interp(z_trials, self.interp_z, self.interp_DL)
         log_Mc_DL_ratio = (5.0 / 6.0) * jnp.log(Mc_det) - jnp.log(DL)
         amp_factor_plus = 2.0 * (
-            log_Mc_DL_ratio + jnp.log((1.0 + cos_inclination_trials**2)) + jnp.log(0.5)
+            log_Mc_DL_ratio + jnp.log1p(cos_inclination_trials**2) + jnp.log(0.5)
         )
         amp_factor_cross = 2.0 * (log_Mc_DL_ratio + jnp.log(cos_inclination_trials))
 
@@ -162,7 +143,7 @@ class pdet_O3(Emulator):
             + 2.0 * Omg * chi_1p * chi_2p * jnp.cos(phi12_trials)
         )
 
-        return jnp.array(
+        return jnp.stack(
             [
                 amp_factor_plus,
                 amp_factor_cross,
@@ -179,17 +160,20 @@ class pdet_O3(Emulator):
                 chi_effective,
                 chi_diff,
                 chi_p_gen,
-            ]
+            ],
+            axis=-1,
         )
 
     def predict(self, key: PRNGKeyArray, params: Array) -> Array:
         # Copy so that we can safely modify dictionary in-place
         parameter_dict = {
-            parameter: params[i] for i, parameter in enumerate(self.parameters)
+            parameter: params[..., i] for i, parameter in enumerate(self.parameters)
         }
 
+        shape = jnp.shape(params)[:-1]
+
         # Check input
-        parameter_dict = self.check_input(key, parameter_dict)
+        parameter_dict = self.check_input(key, shape, parameter_dict)
 
         features = jnp.stack(
             [
