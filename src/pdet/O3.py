@@ -6,8 +6,9 @@ import astropy.units as u
 import jax
 import jax.numpy as jnp
 import numpy as np
-from astropy.cosmology import Planck15, z_at_value
+import wcosmo
 from jaxtyping import Array, PRNGKeyArray
+from wcosmo.astropy import z_at_value
 
 from ._emulator import Emulator
 from ._names import (
@@ -87,8 +88,8 @@ class pdet_O3(Emulator):
 
         self.interp_DL = np.logspace(-4, jnp.log10(15.0), 500)
         self.interp_z = z_at_value(
-            Planck15.luminosity_distance, self.interp_DL * u.Gpc
-        ).value
+            wcosmo.astropy.Planck15.luminosity_distance, self.interp_DL * u.Gpc
+        )._value
 
         super().__init__(
             model_weights,

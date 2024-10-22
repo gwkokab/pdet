@@ -8,12 +8,11 @@ import h5py
 import jax
 import jax.numpy as jnp
 import jax.random as jrd
+import wcosmo
 from astropy import units
 from jaxtyping import Array, PRNGKeyArray
 from wcosmo import z_at_value
-from wcosmo.utils import strip_units
 
-from ._cosmology import Planck15
 from ._names import (
     A_1,
     A_2,
@@ -215,10 +214,14 @@ class Emulator:
         # Augment, such both redshift and luminosity distance are present
         if COMOVING_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                lambda z: strip_units(Planck15.comoving_distance(z)),
-                parameter_dict[COMOVING_DISTANCE],
+                wcosmo.astropy.Planck15.comoving_distance,
+                parameter_dict[COMOVING_DISTANCE] * units.Gpc,
+            ).value
+            luminosity_distance = (
+                wcosmo.astropy.Planck15.luminosity_distance(redshift)
+                .to(units.Gpc)
+                .value
             )
-            luminosity_distance = Planck15.luminosity_distance(redshift) * units.Gpc
 
             redshift = jnp.broadcast_to(redshift, shape)
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
@@ -228,13 +231,16 @@ class Emulator:
 
         elif LUMINOSITY_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                Planck15.luminosity_distance, parameter_dict[LUMINOSITY_DISTANCE]
+                wcosmo.astropy.Planck15.luminosity_distance,
+                parameter_dict[LUMINOSITY_DISTANCE],
             )
             redshift = jnp.broadcast_to(redshift, shape)
             missing_params[REDSHIFT] = redshift
 
         elif REDSHIFT in parameter_dict:
-            luminosity_distance = Planck15.luminosity_distance(parameter_dict[REDSHIFT])
+            luminosity_distance = wcosmo.astropy.Planck15.luminosity_distance(
+                parameter_dict[REDSHIFT]
+            )
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
             missing_params[LUMINOSITY_DISTANCE] = luminosity_distance
 
