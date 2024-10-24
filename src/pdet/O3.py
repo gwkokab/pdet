@@ -2,7 +2,6 @@ import os
 from typing import Optional
 from typing_extensions import List
 
-import astropy.units as u
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,6 +25,9 @@ from ._names import (
     SIN_DECLINATION,
 )
 from ._transform import eta_from_q, mass_ratio
+
+
+Planck15: wcosmo.astropy.FlatLambdaCDM = getattr(wcosmo.astropy, "Planck15")
 
 
 class pdet_O3(Emulator):
@@ -86,10 +88,8 @@ class pdet_O3(Emulator):
         activation = lambda x: jax.nn.leaky_relu(x, 1e-3)
         final_activation = lambda x: (1.0 - 0.0589) * jax.nn.sigmoid(x)
 
-        self.interp_DL = np.logspace(-4, jnp.log10(15.0), 500)
-        self.interp_z = z_at_value(
-            wcosmo.astropy.Planck15.luminosity_distance, self.interp_DL * u.Gpc
-        )._value
+        self.interp_DL = jnp.logspace(-4, jnp.log10(15.0), 500)
+        self.interp_z = z_at_value(Planck15.luminosity_distance, self.interp_DL)
 
         super().__init__(
             model_weights,
@@ -194,4 +194,8 @@ class pdet_O3(Emulator):
             axis=-1,
         )
 
-        return self.__call__(features)
+        prediction = self.__call__(features)
+        prediction = jnp.nan_to_num(
+            prediction, nan=0.0, posinf=jnp.inf, neginf=-jnp.inf
+        )
+        return prediction

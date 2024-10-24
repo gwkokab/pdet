@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrd
 import wcosmo
-from astropy import units
 from jaxtyping import Array, PRNGKeyArray
 from wcosmo import z_at_value
 
@@ -30,6 +29,9 @@ from ._names import (
     RIGHT_ASCENSION,
     SIN_DECLINATION,
 )
+
+
+Planck15: wcosmo.astropy.FlatLambdaCDM = getattr(wcosmo.astropy, "Planck15")
 
 
 jax.config.update("jax_enable_x64", True)
@@ -75,7 +77,6 @@ class Emulator:
         -------
         None
         """
-        # enable_units()
 
         # Instantiate neural network
         self.trained_weights = trained_weights
@@ -214,14 +215,9 @@ class Emulator:
         # Augment, such both redshift and luminosity distance are present
         if COMOVING_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                wcosmo.astropy.Planck15.comoving_distance,
-                parameter_dict[COMOVING_DISTANCE] * units.Gpc,
-            ).value
-            luminosity_distance = (
-                wcosmo.astropy.Planck15.luminosity_distance(redshift)
-                .to(units.Gpc)
-                .value
+                Planck15.comoving_distance, parameter_dict[COMOVING_DISTANCE]
             )
+            luminosity_distance = Planck15.luminosity_distance(redshift)
 
             redshift = jnp.broadcast_to(redshift, shape)
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
@@ -231,16 +227,13 @@ class Emulator:
 
         elif LUMINOSITY_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                wcosmo.astropy.Planck15.luminosity_distance,
-                parameter_dict[LUMINOSITY_DISTANCE],
+                Planck15.luminosity_distance, parameter_dict[LUMINOSITY_DISTANCE]
             )
             redshift = jnp.broadcast_to(redshift, shape)
             missing_params[REDSHIFT] = redshift
 
         elif REDSHIFT in parameter_dict:
-            luminosity_distance = wcosmo.astropy.Planck15.luminosity_distance(
-                parameter_dict[REDSHIFT]
-            )
+            luminosity_distance = Planck15.luminosity_distance(parameter_dict[REDSHIFT])
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
             missing_params[LUMINOSITY_DISTANCE] = luminosity_distance
 
