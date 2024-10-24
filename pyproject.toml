@@ -33,12 +33,13 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "astropy>=6.0.1",
     "equinox>=0.11.3",
     "h5py>=3.12.0",
     "jax>=0.4.25",
     "jaxlib>=0.4.25",
     "numpy>=1.26.4",
+    "wcosmo>=0.4.0",
+    "gwpopulation>=1.1.2", # https://github.com/ColmTalbot/wcosmo/issues/3#issuecomment-2426836308
 ]
 
 [project.urls]
