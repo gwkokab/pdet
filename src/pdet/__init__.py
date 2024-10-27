@@ -1,9 +1,6 @@
 import gwpopulation
-import wcosmo
 
 
-# Disabling units
-wcosmo.utils.disable_units()
 # We only support JAX backend
 # https://github.com/ColmTalbot/wcosmo/issues/3#issuecomment-2426836308
 gwpopulation.set_backend("jax")

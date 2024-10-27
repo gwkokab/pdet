@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import wcosmo
+from astropy import units
 from jaxtyping import Array, PRNGKeyArray
 from wcosmo.astropy import z_at_value
 
@@ -89,7 +90,10 @@ class pdet_O3(Emulator):
         final_activation = lambda x: (1.0 - 0.0589) * jax.nn.sigmoid(x)
 
         self.interp_DL = jnp.logspace(-4, jnp.log10(15.0), 500)
-        self.interp_z = z_at_value(Planck15.luminosity_distance, self.interp_DL)
+        self.interp_z = z_at_value(
+            lambda z: Planck15.luminosity_distance(z).to_value(units.Gpc),
+            self.interp_DL,
+        )
 
         super().__init__(
             model_weights,
