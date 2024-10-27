@@ -300,43 +300,32 @@ class Emulator:
             warnings.warn(
                 f"Parameter {A_1} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[A_1] = jrd.uniform(key, shape, minval=0.0, maxval=1.0)
-            _, key = jrd.split(key)
+            missing_params[A_1] = jnp.zeros(shape)
 
         if A_2 not in parameter_dict:
             warnings.warn(
                 f"Parameter {A_2} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[A_2] = jrd.uniform(key, shape, minval=0.0, maxval=1.0)
-            _, key = jrd.split(key)
+            missing_params[A_2] = jnp.zeros(shape)
 
         # Check for optional parameters, fill in if absent
         if COS_THETA_1 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_1} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[COS_THETA_1] = jrd.uniform(
-                key, shape, minval=-1.0, maxval=1.0
-            )
-            _, key = jrd.split(key)
+            missing_params[COS_THETA_1] = jnp.ones(shape)
 
         if COS_THETA_2 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_2} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[COS_THETA_2] = jrd.uniform(
-                key, shape, minval=-1.0, maxval=1.0
-            )
-            _, key = jrd.split(key)
+            missing_params[COS_THETA_2] = jnp.ones(shape)
 
         if PHI_12 not in parameter_dict:
             warnings.warn(
                 f"Parameter {PHI_12} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[PHI_12] = jrd.uniform(
-                key, shape, minval=0.0, maxval=2.0 * jnp.pi
-            )
-            _, key = jrd.split(key)
+            missing_params[PHI_12] = jnp.zeros(shape)
 
         return key, missing_params
 
