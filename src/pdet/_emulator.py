@@ -3,14 +3,16 @@ import warnings
 from collections.abc import Callable
 from typing_extensions import LiteralString, Optional
 
-import astropy.units as u
 import equinox as eqx
 import h5py
 import jax
 import jax.numpy as jnp
 import jax.random as jrd
-from astropy.cosmology import Planck15, z_at_value
+import wcosmo
+from astropy import units
 from jaxtyping import Array, PRNGKeyArray
+from unxt import ustrip
+from wcosmo import z_at_value
 
 from ._names import (
     A_1,
@@ -29,6 +31,9 @@ from ._names import (
     RIGHT_ASCENSION,
     SIN_DECLINATION,
 )
+
+
+Planck15: wcosmo.astropy.FlatLambdaCDM = getattr(wcosmo.astropy, "Planck15")
 
 
 jax.config.update("jax_enable_x64", True)
@@ -212,14 +217,13 @@ class Emulator:
         # Augment, such both redshift and luminosity distance are present
         if COMOVING_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                Planck15.comoving_distance,
-                list(parameter_dict[COMOVING_DISTANCE]) * u.Gpc,
-            ).value
-            luminosity_distance = (
-                Planck15.luminosity_distance(list(parameter_dict[REDSHIFT]))
-                .to(u.Gpc)
-                .value
+                lambda z: ustrip(units.Gpc, Planck15.comoving_distance(z)),
+                parameter_dict[COMOVING_DISTANCE],
             )
+            luminosity_distance = Planck15.luminosity_distance(redshift).to_value(
+                units.Gpc
+            )
+
             redshift = jnp.broadcast_to(redshift, shape)
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
 
@@ -228,18 +232,16 @@ class Emulator:
 
         elif LUMINOSITY_DISTANCE in parameter_dict:
             redshift = z_at_value(
-                Planck15.luminosity_distance,
-                list(parameter_dict[LUMINOSITY_DISTANCE]) * u.Gpc,
-            ).value
+                lambda z: ustrip(units.Gpc, Planck15.luminosity_distance(z)),
+                parameter_dict[LUMINOSITY_DISTANCE],
+            )
             redshift = jnp.broadcast_to(redshift, shape)
             missing_params[REDSHIFT] = redshift
 
         elif REDSHIFT in parameter_dict:
-            luminosity_distance = (
-                Planck15.luminosity_distance(list(parameter_dict[REDSHIFT]))
-                .to(u.Gpc)
-                .value
-            )
+            luminosity_distance = Planck15.luminosity_distance(
+                parameter_dict[REDSHIFT]
+            ).to_value(units.Gpc)
             luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
             missing_params[LUMINOSITY_DISTANCE] = luminosity_distance
 
@@ -271,11 +273,6 @@ class Emulator:
             if param not in parameter_dict:
                 raise RuntimeError("Must include {0} parameter".format(param))
 
-        # missing_params = {}
-        # # Reshape for safety below
-        # missing_params[MASS_1] = jnp.reshape(parameter_dict[MASS_1], -1)
-        # missing_params[MASS_2] = jnp.reshape(parameter_dict[MASS_2], -1)
-
         return key, {MASS_1: parameter_dict[MASS_1], MASS_2: parameter_dict[MASS_2]}
 
     def _check_spins(
@@ -303,43 +300,32 @@ class Emulator:
             warnings.warn(
                 f"Parameter {A_1} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[A_1] = jrd.uniform(key, shape, minval=0.0, maxval=1.0)
-            _, key = jrd.split(key)
+            missing_params[A_1] = jnp.zeros(shape)
 
         if A_2 not in parameter_dict:
             warnings.warn(
                 f"Parameter {A_2} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[A_2] = jrd.uniform(key, shape, minval=0.0, maxval=1.0)
-            _, key = jrd.split(key)
+            missing_params[A_2] = jnp.zeros(shape)
 
         # Check for optional parameters, fill in if absent
         if COS_THETA_1 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_1} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[COS_THETA_1] = jrd.uniform(
-                key, shape, minval=-1.0, maxval=1.0
-            )
-            _, key = jrd.split(key)
+            missing_params[COS_THETA_1] = jnp.ones(shape)
 
         if COS_THETA_2 not in parameter_dict:
             warnings.warn(
                 f"Parameter {COS_THETA_2} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[COS_THETA_2] = jrd.uniform(
-                key, shape, minval=-1.0, maxval=1.0
-            )
-            _, key = jrd.split(key)
+            missing_params[COS_THETA_2] = jnp.ones(shape)
 
         if PHI_12 not in parameter_dict:
             warnings.warn(
                 f"Parameter {PHI_12} not present. Filling with random value from isotropic distribution."
             )
-            missing_params[PHI_12] = jrd.uniform(
-                key, shape, minval=0.0, maxval=2.0 * jnp.pi
-            )
-            _, key = jrd.split(key)
+            missing_params[PHI_12] = jnp.zeros(shape)
 
         return key, missing_params
 
