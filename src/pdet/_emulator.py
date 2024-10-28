@@ -1,36 +1,13 @@
 import json
-import warnings
 from collections.abc import Callable
-from typing_extensions import LiteralString, Optional
+from typing_extensions import LiteralString, Optional, Tuple
 
 import equinox as eqx
 import h5py
 import jax
 import jax.numpy as jnp
-import jax.random as jrd
 import wcosmo
-from astropy import units
 from jaxtyping import Array, PRNGKeyArray
-from unxt import ustrip
-from wcosmo import z_at_value
-
-from ._names import (
-    A_1,
-    A_2,
-    COMOVING_DISTANCE,
-    COS_INCLINATION,
-    COS_THETA_1,
-    COS_THETA_2,
-    INCLINATION,
-    LUMINOSITY_DISTANCE,
-    MASS_1,
-    MASS_2,
-    PHI_12,
-    POLARIZATION_ANGLE,
-    REDSHIFT,
-    RIGHT_ASCENSION,
-    SIN_DECLINATION,
-)
 
 
 Planck15: wcosmo.astropy.FlatLambdaCDM = getattr(wcosmo.astropy, "Planck15")
@@ -124,7 +101,7 @@ class Emulator:
 
         self.nn_vmapped = jax.vmap(self.nn)
 
-    def _transform_parameters(self, *physical_params):
+    def _transform_parameters(self, *args, **kwargs):
         """OVERWRITE UPON SUBCLASSING.
 
         Function to convert from a predetermined set of user-provided physical
@@ -146,17 +123,7 @@ class Emulator:
         transformed_parameters : jax.numpy.array
             Transformed parameter space expected by trained neural network
         """
-
-        # APPLY REQUIRED TRANSFORMATION HERE
-        # transformed_params = ...
-
-        # Dummy transformation
-        transformed_params = physical_params
-
-        # Jaxify
-        transformed_params = jnp.array(physical_params)
-
-        return transformed_params
+        raise NotImplementedError
 
     def __call__(self, x):
         """Function to evaluate the trained neural network on a set of user-
@@ -179,223 +146,12 @@ class Emulator:
         # return jax.vmap(self.nn)(scaled_x)
         return self.nn_vmapped(scaled_x)
 
-    def _check_distance(
-        self,
-        key: PRNGKeyArray,
-        shape: tuple[int, ...],
-        parameter_dict: dict[LiteralString, Array],
-    ) -> tuple[PRNGKeyArray, dict[LiteralString, Array]]:
-        """Helper function to check the presence of required distance
-        arguments, and augment input parameters with additional quantities as
-        needed.
-
-        Parameters
-        ----------
-        parameter_dict : `dict` or `pd.DataFrame`
-            Set of compact binary parameters for which we want to evaluate Pdet
-
-        Returns
-        -------
-        None
-        """
-
-        # Check for distance parameters
-        # If none are present, or if more than one is present, return an error
-        allowed_distance_params = [LUMINOSITY_DISTANCE, COMOVING_DISTANCE, REDSHIFT]
-        if not any(param in parameter_dict for param in allowed_distance_params):
-            raise RuntimeError(
-                "Missing distance parameter. Requires one of: ", allowed_distance_params
-            )
-        elif all(param in parameter_dict for param in allowed_distance_params):
-            raise RuntimeError(
-                "Multiple distance parameters present. Only one of the following allowed: ",
-                allowed_distance_params,
-            )
-
-        missing_params = {}
-
-        # Augment, such both redshift and luminosity distance are present
-        if COMOVING_DISTANCE in parameter_dict:
-            redshift = z_at_value(
-                lambda z: ustrip(units.Gpc, Planck15.comoving_distance(z)),
-                parameter_dict[COMOVING_DISTANCE],
-            )
-            luminosity_distance = Planck15.luminosity_distance(redshift).to_value(
-                units.Gpc
-            )
-
-            redshift = jnp.broadcast_to(redshift, shape)
-            luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
-
-            missing_params[REDSHIFT] = redshift
-            parameter_dict[LUMINOSITY_DISTANCE] = luminosity_distance
-
-        elif LUMINOSITY_DISTANCE in parameter_dict:
-            redshift = z_at_value(
-                lambda z: ustrip(units.Gpc, Planck15.luminosity_distance(z)),
-                parameter_dict[LUMINOSITY_DISTANCE],
-            )
-            redshift = jnp.broadcast_to(redshift, shape)
-            missing_params[REDSHIFT] = redshift
-
-        elif REDSHIFT in parameter_dict:
-            luminosity_distance = Planck15.luminosity_distance(
-                parameter_dict[REDSHIFT]
-            ).to_value(units.Gpc)
-            luminosity_distance = jnp.broadcast_to(luminosity_distance, shape)
-            missing_params[LUMINOSITY_DISTANCE] = luminosity_distance
-
-        return key, missing_params
-
-    def _check_masses(
-        self,
-        key: PRNGKeyArray,
-        shape: tuple[int, ...],
-        parameter_dict: dict[LiteralString, Array],
-    ) -> tuple[PRNGKeyArray, dict[LiteralString, Array]]:
-        """Helper function to check the presence of required mass arguments,
-        and augment input parameters with additional quantities needed for
-        prediction.
-
-        Parameters
-        ----------
-        parameter_dict : `dict` or `pd.DataFrame`
-            Set of compact binary parameters for which we want to evaluate Pdet
-
-        Returns
-        -------
-        None
-        """
-
-        # Check that mass parameters are present
-        required_mass_params = [MASS_1, MASS_2]
-        for param in required_mass_params:
-            if param not in parameter_dict:
-                raise RuntimeError("Must include {0} parameter".format(param))
-
-        return key, {MASS_1: parameter_dict[MASS_1], MASS_2: parameter_dict[MASS_2]}
-
-    def _check_spins(
-        self,
-        key: PRNGKeyArray,
-        shape: tuple[int, ...],
-        parameter_dict: dict[LiteralString, Array],
-    ) -> tuple[PRNGKeyArray, dict[LiteralString, Array]]:
-        """Helper function to check for the presence of required spin
-        parameters and augment with additional quantities as needed.
-
-        Parameters
-        ----------
-        parameter_dict : `dict` or `pd.DataFrame`
-            Set of compact binary parameters for which we want to evaluate Pdet
-
-        Returns
-        -------
-        None
-        """
-
-        missing_params = {}
-
-        if A_1 not in parameter_dict:
-            warnings.warn(
-                f"Parameter {A_1} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[A_1] = jnp.zeros(shape)
-
-        if A_2 not in parameter_dict:
-            warnings.warn(
-                f"Parameter {A_2} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[A_2] = jnp.zeros(shape)
-
-        # Check for optional parameters, fill in if absent
-        if COS_THETA_1 not in parameter_dict:
-            warnings.warn(
-                f"Parameter {COS_THETA_1} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[COS_THETA_1] = jnp.ones(shape)
-
-        if COS_THETA_2 not in parameter_dict:
-            warnings.warn(
-                f"Parameter {COS_THETA_2} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[COS_THETA_2] = jnp.ones(shape)
-
-        if PHI_12 not in parameter_dict:
-            warnings.warn(
-                f"Parameter {PHI_12} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[PHI_12] = jnp.zeros(shape)
-
-        return key, missing_params
-
-    def _check_extrinsic(
-        self,
-        key: PRNGKeyArray,
-        shape: tuple[int, ...],
-        parameter_dict: dict[LiteralString, Array],
-    ) -> tuple[PRNGKeyArray, dict[LiteralString, Array]]:
-        """Helper method to check required extrinsic parameters and augment as
-        necessary.
-
-        Parameters
-        ----------
-        parameter_dict : `dict` or `pd.DataFrame`
-            Set of compact binary parameters for which we want to evaluate Pdet
-
-        Returns
-        -------
-        None
-        """
-
-        missing_params = {}
-
-        if RIGHT_ASCENSION not in parameter_dict:
-            warnings.warn(
-                f"Parameter {RIGHT_ASCENSION} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[RIGHT_ASCENSION] = jrd.uniform(
-                key, shape, minval=0.0, maxval=2.0 * jnp.pi
-            )
-            _, key = jrd.split(key)
-        if SIN_DECLINATION not in parameter_dict:
-            warnings.warn(
-                f"Parameter {SIN_DECLINATION} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[SIN_DECLINATION] = jrd.uniform(
-                key, shape, minval=-1.0, maxval=1.0
-            )
-            _, key = jrd.split(key)
-
-        if INCLINATION not in parameter_dict:
-            if COS_INCLINATION not in parameter_dict:
-                warnings.warn(
-                    f"Parameter {INCLINATION} or {COS_INCLINATION} not present. Filling with random value from isotropic distribution."
-                )
-                missing_params[COS_INCLINATION] = jrd.uniform(
-                    key, shape, minval=-1.0, maxval=1.0
-                )
-            _, key = jrd.split(key)
-        else:
-            missing_params[COS_INCLINATION] = jnp.cos(parameter_dict[INCLINATION])
-
-        if POLARIZATION_ANGLE not in parameter_dict:
-            warnings.warn(
-                f"Parameter {POLARIZATION_ANGLE} not present. Filling with random value from isotropic distribution."
-            )
-            missing_params[POLARIZATION_ANGLE] = jrd.uniform(
-                key, shape, minval=0.0, maxval=2.0 * jnp.pi
-            )
-            _, key = jrd.split(key)
-
-        return key, missing_params
-
     def check_input(
         self,
         key: PRNGKeyArray,
         shape: tuple[int, ...],
         parameter_dict: dict[LiteralString, Array],
-    ) -> dict[LiteralString, Array]:
+    ) -> Tuple[PRNGKeyArray, dict[LiteralString, Array]]:
         """Method to check provided set of compact binary parameters for any
         missing information, and/or to augment provided parameters with any
         additional derived information expected by the neural network. If
@@ -414,16 +170,4 @@ class Emulator:
             Dictionary of CBC parameters, augmented with necessary derived
             parameters
         """
-
-        # Check parameters
-        key, missing_distance = self._check_distance(key, shape, parameter_dict)
-        key, missing_masses = self._check_masses(key, shape, parameter_dict)
-        key, missing_spins = self._check_spins(key, shape, parameter_dict)
-        key, missing_extrinsic = self._check_extrinsic(key, shape, parameter_dict)
-
-        parameter_dict.update(missing_distance)
-        parameter_dict.update(missing_masses)
-        parameter_dict.update(missing_spins)
-        parameter_dict.update(missing_extrinsic)
-
-        return parameter_dict
+        raise NotImplementedError
