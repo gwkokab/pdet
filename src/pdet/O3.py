@@ -93,6 +93,8 @@ class pdet_O3(Emulator):
 
         self.parameters = parameters
 
+        self.extra_shape = (1000,)
+
         if model_weights is None:
             model_weights = os.path.join(
                 os.path.dirname(__file__), "./../trained_weights/weights_HLV_O3.hdf5"
@@ -261,32 +263,32 @@ class pdet_O3(Emulator):
             axis=-1,
         )
 
-        prediction = self.__call__(features)
-        prediction = jnp.nan_to_num(
-            prediction, nan=0.0, posinf=jnp.inf, neginf=-jnp.inf
-        )
-
-        @partial(jax.vmap, in_axes=(0, 1), out_axes=0)
-        def _predict(key: PRNGKeyArray, features: Array) -> Array:
+        @partial(jax.vmap, in_axes=(0, 0), out_axes=0)
+        def _predict(key: PRNGKeyArray, _features: Array) -> Array:
+            _features = jnp.broadcast_to(_features, self.extra_shape + _features.shape)
             if parameter_dict.get(REDSHIFT) is None:
-                z = jrd.uniform(key, shape, minval=0.0, maxval=100.0)
-                features = jnp.insert(
-                    features, self.all_parameters.index(REDSHIFT), z, axis=1
+                z = jrd.uniform(key, self.extra_shape, minval=0.0, maxval=100.0)
+                _features = jnp.insert(
+                    _features, self.all_parameters.index(REDSHIFT), z, axis=1
                 )
                 _, key = jrd.split(key)
             if parameter_dict.get(COS_INCLINATION) is None:
-                cos_inclination = jrd.uniform(key, shape, minval=-1.0, maxval=1.0)
-                features = jnp.insert(
-                    features,
+                cos_inclination = jrd.uniform(
+                    key, self.extra_shape, minval=-1.0, maxval=1.0
+                )
+                _features = jnp.insert(
+                    _features,
                     self.all_parameters.index(COS_INCLINATION),
                     cos_inclination,
                     axis=1,
                 )
                 _, key = jrd.split(key)
             if parameter_dict.get(POLARIZATION_ANGLE) is None:
-                polarization_angle = jrd.uniform(key, shape, minval=0.0, maxval=jnp.pi)
-                features = jnp.insert(
-                    features,
+                polarization_angle = jrd.uniform(
+                    key, self.extra_shape, minval=0.0, maxval=jnp.pi
+                )
+                _features = jnp.insert(
+                    _features,
                     self.all_parameters.index(POLARIZATION_ANGLE),
                     polarization_angle,
                     axis=1,
@@ -294,25 +296,32 @@ class pdet_O3(Emulator):
                 _, key = jrd.split(key)
             if parameter_dict.get(RIGHT_ASCENSION) is None:
                 right_ascension = jrd.uniform(
-                    key, shape, minval=0.0, maxval=2.0 * jnp.pi
+                    key, self.extra_shape, minval=0.0, maxval=2.0 * jnp.pi
                 )
-                features = jnp.insert(
-                    features,
+                _features = jnp.insert(
+                    _features,
                     self.all_parameters.index(RIGHT_ASCENSION),
                     right_ascension,
                     axis=1,
                 )
                 _, key = jrd.split(key)
             if parameter_dict.get(SIN_DECLINATION) is None:
-                sin_declination = jrd.uniform(key, shape, minval=-1.0, maxval=1.0)
-                features = jnp.insert(
-                    features,
+                sin_declination = jrd.uniform(
+                    key, self.extra_shape, minval=-1.0, maxval=1.0
+                )
+                _features = jnp.insert(
+                    _features,
                     self.all_parameters.index(SIN_DECLINATION),
                     sin_declination,
                     axis=1,
                 )
                 _, key = jrd.split(key)
 
-            return jnp.mean(self.__call__(features), axis=0)
+            prediction = self.__call__(_features)
+            prediction = jnp.nan_to_num(
+                prediction, nan=0.0, posinf=jnp.inf, neginf=-jnp.inf
+            )
 
-        return prediction
+            return jnp.mean(prediction, axis=0)
+
+        return _predict(keys, features)
