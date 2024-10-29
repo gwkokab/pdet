@@ -1,9 +1,10 @@
 import os
-from typing import Optional
-from typing_extensions import List
+from functools import partial
+from typing_extensions import List, LiteralString, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import jax.random as jrd
 import numpy as np
 import wcosmo
 from astropy import units
@@ -67,7 +68,32 @@ class pdet_O3(Emulator):
         if parameters is None:
             raise ValueError("Must provide list of parameters")
 
+        self.all_parameters = [
+            MASS_1,
+            MASS_2,
+            A_1,
+            A_2,
+            COS_THETA_1,
+            COS_THETA_2,
+            PHI_12,
+            REDSHIFT,
+            COS_INCLINATION,
+            POLARIZATION_ANGLE,
+            RIGHT_ASCENSION,
+            SIN_DECLINATION,
+        ]
+
+        self.proposal_dist = {
+            REDSHIFT: [0.0, 10.0],
+            COS_INCLINATION: [-1.0, 1.0],
+            POLARIZATION_ANGLE: [0.0, jnp.pi],
+            RIGHT_ASCENSION: [0.0, 2.0 * jnp.pi],
+            SIN_DECLINATION: [-1.0, 1.0],
+        }
+
         self.parameters = parameters
+
+        self.extra_shape = (1000,)
 
         if model_weights is None:
             model_weights = os.path.join(
@@ -113,10 +139,10 @@ class pdet_O3(Emulator):
         a2_trials: Array,
         cost1_trials: Array,
         cost2_trials: Array,
+        phi12_trials: Array,
         z_trials: Array,
         cos_inclination_trials: Array,
         pol_trials: Array,
-        phi12_trials: Array,
         ra_trials: Array,
         sin_dec_trials: Array,
     ) -> Array:
@@ -169,37 +195,133 @@ class pdet_O3(Emulator):
             axis=-1,
         )
 
+    def check_input(
+        self,
+        key: PRNGKeyArray,
+        shape: tuple[int, ...],
+        parameter_dict: dict[LiteralString, Array],
+    ) -> Tuple[PRNGKeyArray, dict[LiteralString, Array]]:
+        """Method to check provided set of compact binary parameters for any
+        missing information, and/or to augment provided parameters with any
+        additional derived information expected by the neural network. If
+        extrinsic parameters (e.g. sky location, polarization angle, etc.) have
+        not been provided, they will be randomly generated and appended to the
+        given CBC parameters.
+
+        Parameters
+        ----------
+        parameter_dict : `dict` or `pd.DataFrame`
+            Set of compact binary parameters for which we want to evaluate pdet
+
+        Returns
+        -------
+        parameter_dict : `dict`
+            Dictionary of CBC parameters, augmented with necessary derived
+            parameters
+        """
+        missing_params = {}
+
+        required_mass_params = [MASS_1, MASS_2]
+        for param in required_mass_params:
+            if param not in parameter_dict:
+                raise RuntimeError("Must include {0} parameter".format(param))
+
+        if A_1 not in parameter_dict:
+            missing_params[A_1] = jnp.zeros(shape)
+
+        if A_2 not in parameter_dict:
+            missing_params[A_2] = jnp.zeros(shape)
+
+        if COS_THETA_1 not in parameter_dict:
+            missing_params[COS_THETA_1] = jnp.ones(shape)
+
+        if COS_THETA_2 not in parameter_dict:
+            missing_params[COS_THETA_2] = jnp.ones(shape)
+
+        if PHI_12 not in parameter_dict:
+            missing_params[PHI_12] = jnp.zeros(shape)
+
+        parameter_dict.update(missing_params)
+
+        return key, parameter_dict
+
     def predict(self, key: PRNGKeyArray, params: Array) -> Array:
-        # Copy so that we can safely modify dictionary in-place
         parameter_dict = {
             parameter: params[..., i] for i, parameter in enumerate(self.parameters)
         }
 
         shape = jnp.shape(params)[:-1]
-
-        # Check input
-        parameter_dict = self.check_input(key, shape, parameter_dict)
+        key, parameter_dict = self.check_input(key, shape, parameter_dict)
+        keys = jax.random.split(key, shape)
 
         features = jnp.stack(
             [
-                parameter_dict[MASS_1],
-                parameter_dict[MASS_2],
-                parameter_dict[A_1],
-                parameter_dict[A_2],
-                parameter_dict[COS_THETA_1],
-                parameter_dict[COS_THETA_2],
-                parameter_dict[REDSHIFT],
-                parameter_dict[COS_INCLINATION],
-                parameter_dict[POLARIZATION_ANGLE],
-                parameter_dict[PHI_12],
-                parameter_dict[RIGHT_ASCENSION],
-                parameter_dict[SIN_DECLINATION],
+                parameter_dict[param]
+                for param in self.all_parameters
+                if parameter_dict.get(param) is not None
             ],
             axis=-1,
         )
 
-        prediction = self.__call__(features)
-        prediction = jnp.nan_to_num(
-            prediction, nan=0.0, posinf=jnp.inf, neginf=-jnp.inf
-        )
-        return prediction
+        @partial(jax.vmap, in_axes=(0, 0), out_axes=0)
+        def _predict(key: PRNGKeyArray, _features: Array) -> Array:
+            _features = jnp.broadcast_to(_features, self.extra_shape + _features.shape)
+            if parameter_dict.get(REDSHIFT) is None:
+                z = jrd.uniform(key, self.extra_shape, minval=0.0, maxval=100.0)
+                _features = jnp.insert(
+                    _features, self.all_parameters.index(REDSHIFT), z, axis=1
+                )
+                _, key = jrd.split(key)
+            if parameter_dict.get(COS_INCLINATION) is None:
+                cos_inclination = jrd.uniform(
+                    key, self.extra_shape, minval=-1.0, maxval=1.0
+                )
+                _features = jnp.insert(
+                    _features,
+                    self.all_parameters.index(COS_INCLINATION),
+                    cos_inclination,
+                    axis=1,
+                )
+                _, key = jrd.split(key)
+            if parameter_dict.get(POLARIZATION_ANGLE) is None:
+                polarization_angle = jrd.uniform(
+                    key, self.extra_shape, minval=0.0, maxval=jnp.pi
+                )
+                _features = jnp.insert(
+                    _features,
+                    self.all_parameters.index(POLARIZATION_ANGLE),
+                    polarization_angle,
+                    axis=1,
+                )
+                _, key = jrd.split(key)
+            if parameter_dict.get(RIGHT_ASCENSION) is None:
+                right_ascension = jrd.uniform(
+                    key, self.extra_shape, minval=0.0, maxval=2.0 * jnp.pi
+                )
+                _features = jnp.insert(
+                    _features,
+                    self.all_parameters.index(RIGHT_ASCENSION),
+                    right_ascension,
+                    axis=1,
+                )
+                _, key = jrd.split(key)
+            if parameter_dict.get(SIN_DECLINATION) is None:
+                sin_declination = jrd.uniform(
+                    key, self.extra_shape, minval=-1.0, maxval=1.0
+                )
+                _features = jnp.insert(
+                    _features,
+                    self.all_parameters.index(SIN_DECLINATION),
+                    sin_declination,
+                    axis=1,
+                )
+                _, key = jrd.split(key)
+
+            prediction = self.__call__(_features)
+            prediction = jnp.nan_to_num(
+                prediction, nan=0.0, posinf=jnp.inf, neginf=-jnp.inf
+            )
+
+            return jnp.mean(prediction, axis=0)
+
+        return _predict(keys, features)
