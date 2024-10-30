@@ -13,17 +13,17 @@ from wcosmo.astropy import z_at_value
 
 from ._emulator import Emulator
 from ._names import (
-    A_1,
-    A_2,
     COS_INCLINATION,
-    COS_THETA_1,
-    COS_THETA_2,
-    MASS_1,
-    MASS_2,
+    COS_TILT_1,
+    COS_TILT_2,
     PHI_12,
     POLARIZATION_ANGLE,
+    PRIMARY_MASS_SOURCE,
+    PRIMARY_SPIN_MAGNITUDE,
     REDSHIFT,
     RIGHT_ASCENSION,
+    SECONDARY_MASS_SOURCE,
+    SECONDARY_SPIN_MAGNITUDE,
     SIN_DECLINATION,
 )
 from ._transform import eta_from_q, mass_ratio
@@ -69,12 +69,12 @@ class pdet_O3(Emulator):
             raise ValueError("Must provide list of parameters")
 
         self.all_parameters = [
-            MASS_1,
-            MASS_2,
-            A_1,
-            A_2,
-            COS_THETA_1,
-            COS_THETA_2,
+            PRIMARY_MASS_SOURCE,
+            SECONDARY_MASS_SOURCE,
+            PRIMARY_SPIN_MAGNITUDE,
+            SECONDARY_SPIN_MAGNITUDE,
+            COS_TILT_1,
+            COS_TILT_2,
             PHI_12,
             REDSHIFT,
             COS_INCLINATION,
@@ -221,22 +221,22 @@ class pdet_O3(Emulator):
         """
         missing_params = {}
 
-        required_mass_params = [MASS_1, MASS_2]
+        required_mass_params = [PRIMARY_MASS_SOURCE, SECONDARY_MASS_SOURCE]
         for param in required_mass_params:
             if param not in parameter_dict:
                 raise RuntimeError("Must include {0} parameter".format(param))
 
-        if A_1 not in parameter_dict:
-            missing_params[A_1] = jnp.zeros(shape)
+        if PRIMARY_SPIN_MAGNITUDE not in parameter_dict:
+            missing_params[PRIMARY_SPIN_MAGNITUDE] = jnp.zeros(shape)
 
-        if A_2 not in parameter_dict:
-            missing_params[A_2] = jnp.zeros(shape)
+        if SECONDARY_SPIN_MAGNITUDE not in parameter_dict:
+            missing_params[SECONDARY_SPIN_MAGNITUDE] = jnp.zeros(shape)
 
-        if COS_THETA_1 not in parameter_dict:
-            missing_params[COS_THETA_1] = jnp.ones(shape)
+        if COS_TILT_1 not in parameter_dict:
+            missing_params[COS_TILT_1] = jnp.ones(shape)
 
-        if COS_THETA_2 not in parameter_dict:
-            missing_params[COS_THETA_2] = jnp.ones(shape)
+        if COS_TILT_2 not in parameter_dict:
+            missing_params[COS_TILT_2] = jnp.ones(shape)
 
         if PHI_12 not in parameter_dict:
             missing_params[PHI_12] = jnp.zeros(shape)
