@@ -101,7 +101,7 @@ class Emulator:
 
         self.nn_vmapped = jax.vmap(self.nn)
 
-    def _transform_parameters(self, *args, **kwargs):
+    def _transform_parameters(self, *args, **kwargs) -> Array:
         """OVERWRITE UPON SUBCLASSING.
 
         Function to convert from a predetermined set of user-provided physical
@@ -115,12 +115,14 @@ class Emulator:
 
         Parameters
         ----------
-        physical_params : numpy.array or jax.numpy.array
-            Array containing physical parameters characterizing CBC signals
+        *args : `jax.numpy.array`
+            physical parameters characterizing CBC signals
+        **kwargs : `jax.numpy.array`
+            physical parameters characterizing CBC signals
 
         Returns
         -------
-        transformed_parameters : jax.numpy.array
+        transformed_parameters : `jax.numpy.array`
             Transformed parameter space expected by trained neural network
         """
         raise NotImplementedError
@@ -161,13 +163,16 @@ class Emulator:
 
         Parameters
         ----------
-        parameter_dict : `dict` or `pd.DataFrame`
+        key: `jax.random.PRNGKey`
+            Random key to be used for generating extrinsic parameters
+        shape: `tuple`
+            Shape of the input array
+        parameter_dict : `dict`
             Set of compact binary parameters for which we want to evaluate Pdet
 
         Returns
         -------
         parameter_dict : `dict`
-            Dictionary of CBC parameters, augmented with necessary derived
-            parameters
+            Dictionary of CBC parameters, augmented with necessary derived parameters
         """
         raise NotImplementedError
