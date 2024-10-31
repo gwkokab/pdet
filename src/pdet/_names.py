@@ -1,6 +1,8 @@
 from typing_extensions import LiteralString
 
 
+# gwkokab compatible names
+
 COS_INCLINATION: LiteralString = "cos_inclination"
 COS_TILT_1: LiteralString = "cos_tilt_1"
 COS_TILT_2: LiteralString = "cos_tilt_2"
