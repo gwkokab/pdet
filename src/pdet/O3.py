@@ -9,7 +9,7 @@ import numpy as np
 import wcosmo
 from astropy import units
 from jaxtyping import Array, PRNGKeyArray
-from wcosmo.astropy import z_at_value
+from wcosmo.wcosmo import z_at_value
 
 from ._emulator import Emulator
 from ._names import (
