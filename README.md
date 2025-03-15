@@ -19,7 +19,7 @@ The `predict` method allows for the evaluation of detection probabilities based 
 An example is the following:
 
 ```python
-from pdet import pdet_O3
+from pdet.emulator import pdet_O3
 
 # Create an emulator
 p = pdet_O3()
@@ -76,7 +76,7 @@ The `predict()` method above is not amenable to compilation and/or autodifferent
 An alternative JIT-compileable and differentiable method is the `p.__call__()` function:
 
 ```python
-from pdet import pdet_O3
+from pdet.emulator import pdet_O3
 import jax
 
 # Instantiate trained emulator
@@ -98,7 +98,7 @@ pol = [0., 2.9]
 phi12 = [1.2, 0.]
 ra = [3.2, 0.5]
 sin_dec = [-1.1, -0.7]
-params = jnp.array([m1, m2, a1, a2, cost1, cost2, z, cos_inclination, pol, phi12, ra, sin_dec])
+params = jax.numpy.array([m1, m2, a1, a2, cost1, cost2, z, cos_inclination, pol, phi12, ra, sin_dec])
 
 # Compute detection probabilities
 jitted_pdet_O3(params)
